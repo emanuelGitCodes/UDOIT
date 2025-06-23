@@ -198,7 +198,7 @@ class D2lLms implements LmsInterface {
         return $lmsItems;
     }
 
-    public function updateCourseContent(Course $course, User $user)
+    public function updateCourseContent(Course $course, User $user, bool $force = false)
     {
         $lmsItems = $contentItems = [];
 

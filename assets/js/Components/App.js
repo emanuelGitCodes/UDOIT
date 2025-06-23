@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import Header from './Header'
 import WelcomePage from './WelcomePage'
 import HomePage from './HomePage'
@@ -12,8 +12,11 @@ import { analyzeReport } from '../Services/Report'
 
 export default function App(initialData) {
 
+  // ✨ holds the setInterval id so we never start more than one timer
+  const pollRef = useRef(null);
+
   const [messages, setMessages] = useState(initialData.messages || [])
-  const [report, setReport] = useState(initialData.report || null)  
+  const [report, setReport] = useState(initialData.report || null)
   const [settings, setSettings] = useState(initialData.settings || null)
   const [sections, setSections] = useState([])
 
@@ -60,21 +63,21 @@ export default function App(initialData) {
 
   const updateUserSettings = (newUserSetting) => {
     let newRoles = Object.assign({}, settings.user.roles, newUserSetting)
-    let newUser = Object.assign({}, settings.user, { 'roles': newRoles})
+    let newUser = Object.assign({}, settings.user, { 'roles': newRoles })
     let newSettings = Object.assign({}, settings, { user: newUser })
 
     let api = new Api(settings)
     api.updateUser(newUser)
       .then((response) => response.json())
       .then((data) => {
-        if(data.user) {
+        if (data.user) {
           newSettings.user = data.user
-          if(data?.labels?.lang) {
+          if (data?.labels?.lang) {
             newSettings.labels = data.labels
           }
           setSettings(newSettings)
         }
-    })
+      })
   }
 
   // Session Issues are used to track progress when multiple things are going on at once,
@@ -82,27 +85,27 @@ export default function App(initialData) {
   // Each issue has an id and state: { id: issueId, state: 2 }
   // The valid states are set and read in the FixIssuesPage component.
   const updateSessionIssue = (issueId, issueState = null, contentItemId = null) => {
-    if(issueState === null || issueState === ISSUE_STATE.UNCHANGED) {
+    if (issueState === null || issueState === ISSUE_STATE.UNCHANGED) {
       let newSessionIssues = Object.assign({}, sessionIssues)
-      if(newSessionIssues[issueId]) {
+      if (newSessionIssues[issueId]) {
         delete newSessionIssues[issueId]
       }
       setSessionIssues(newSessionIssues)
 
-      if(contentItemId) {
+      if (contentItemId) {
         removeContentItemFromCache(contentItemId)
       }
 
       return
     }
-    let newSessionIssues = Object.assign({}, sessionIssues, { [issueId]: issueState})
+    let newSessionIssues = Object.assign({}, sessionIssues, { [issueId]: issueState })
     setSessionIssues(newSessionIssues)
   }
 
   const processNewReport = (rawReport) => {
     const tempReport = analyzeReport(rawReport, ISSUE_STATE)
     setReport(tempReport)
-    
+
     if (tempReport.contentSections) {
       setSections(tempReport.contentSections)
     }
@@ -110,20 +113,63 @@ export default function App(initialData) {
       setSections([])
     }
 
-    if(tempReport.sessionIssues) {
+    if (tempReport.sessionIssues) {
       setSessionIssues(tempReport.sessionIssues)
     }
 
     let tempContentItems = {}
-    for(const key in tempReport.contentItems) {
+    for (const key in tempReport.contentItems) {
       tempContentItems[key] = tempReport.contentItems[key]
     }
     setContentItemCache(tempContentItems)
   }
 
   const handleNewReport = (data) => {
+    // ------------------------------------------------------------------
+    // 1.  Back‑end says the rescan is merely *queued* → start (or keep)
+    //     a single polling timer until the report is ready.
+    // ------------------------------------------------------------------
+    if (data?.data?.status === 'queued') {
+      setSyncComplete(false)
+
+      // Already polling?  Don’t start a second timer.
+      if (pollRef.current === null) {
+        pollRef.current = setInterval(() => {
+          // ✅ 1. Fetch the *latest report*
+          new Api(settings)
+            .getReport('latest')
+            .then((r) => r.json())
+            .then((fresh) => {
+              // ✅ 2. When the back-end sets ready=true we can stop polling
+              if (fresh?.data?.ready) {
+                clearInterval(pollRef.current);
+                pollRef.current = null
+                handleNewReport(fresh)          // recurse once with real data
+              }
+            })
+            .catch(() => {
+              addMessage({
+                type: 'error',
+                text: t('network_error', { default: 'Network error occurred while polling.' }),
+                visible: true,
+              })
+            })
+        }, 5000)
+      }
+      return                                   // wait for the timer tick
+    }
+
+    // ------------------------------------------------------------------
+    // 2.  We now have a real report object → stop any leftover polling.
+    // ------------------------------------------------------------------
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+
     let newReport = report
     let newHasNewReport = hasNewReport
+
     if (data.messages) {
       data.messages.forEach((msg) => {
         if (msg.visible) {
@@ -131,23 +177,25 @@ export default function App(initialData) {
         }
       })
     }
+
     if (data.data && data.data.id) {
       newReport = data.data
       newHasNewReport = true
     }
+
     setSyncComplete(true)
     setHasNewReport(newHasNewReport)
 
-    if(newHasNewReport) {
+    if (newHasNewReport) {
       processNewReport(newReport)
     }
   }
 
   const handleNavigation = (newNavigation) => {
-    if(newNavigation === navigation || !syncComplete) {
+    if (newNavigation === navigation || !syncComplete) {
       return
     }
-    if(newNavigation !== 'fixIssues') {
+    if (newNavigation !== 'fixIssues') {
       setInitialSeverity('')
       setInitialSearchTerm('')
     }
@@ -179,25 +227,26 @@ export default function App(initialData) {
   }
 
   const removeContentItemFromCache = (contentItemId) => {
-    if(!contentItemId) {
+    if (!contentItemId) {
       return
     }
 
     let newContentItemCache = Object.assign({}, contentItemCache)
-    if(newContentItemCache[contentItemId]) {
+    if (newContentItemCache[contentItemId]) {
       delete newContentItemCache[contentItemId]
     }
     setContentItemCache(newContentItemCache)
   }
 
   const handleFullCourseRescan = () => {
-    if (hasNewReport) {
-      setHasNewReport(false)
-      setSyncComplete(false)
-      fullRescan()
-        .then((response) => response.json())
-        .then(handleNewReport)
-    }
+    // if (hasNewReport) {
+
+    setHasNewReport(false)
+    setSyncComplete(false)
+    fullRescan()
+      .then((response) => response.json())
+      .then(handleNewReport)
+    // }
   }
 
   const resizeFrame = useCallback(() => {
@@ -211,7 +260,7 @@ export default function App(initialData) {
   }, [])
 
   useEffect(() => {
-    
+
     scanCourse()
       .then((response) => response.json())
       .then(handleNewReport)
@@ -224,14 +273,23 @@ export default function App(initialData) {
     }
   }, [initialData.report, scanCourse, resizeFrame])
 
+  // make sure we clear the timer if the component unmounts
+  useEffect(() => {
+    return () => {
+      if (pollRef.current !== null) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, []);
+
   return (
     <>
-      { !welcomeClosed ?
-        ( <WelcomePage
-            t={t}
-            settings={settings}
-            syncComplete={syncComplete}
-            setWelcomeClosed={setWelcomeClosed} /> ) :
+      {!welcomeClosed ?
+        (<WelcomePage
+          t={t}
+          settings={settings}
+          syncComplete={syncComplete}
+          setWelcomeClosed={setWelcomeClosed} />) :
         (
           <>
             <Header
@@ -240,7 +298,7 @@ export default function App(initialData) {
               navigation={navigation}
               syncComplete={syncComplete}
               handleNavigation={handleNavigation}
-             />
+            />
 
             <main role="main">
               {('summary' === navigation) &&

@@ -35,10 +35,10 @@ class SyncController extends ApiController
     protected $util;
 
     #[Route('/api/sync/{course}', name: 'request_sync')]
-    public function requestSync(Course $course, LmsFetchService $lmsFetch) {
+    public function requestSync(Course $course): JsonResponse
+    {
         $response = new ApiResponse();
         $user = $this->getUser();
-        $reportArr = false;
 
         try {
             if (!$this->userHasCourseAccess($course)) {
@@ -52,39 +52,39 @@ class SyncController extends ApiController
                 throw new \Exception('msg.sync.course_inactive');
             }
 
-            $lmsFetch->refreshLmsContent($course, $user);
+            // ✅ Use $this->bus
+            $this->bus->dispatch(new FullRescanMessage(
+                $course->getId(),
+                $user->getId(),
+                $user->getApiKey(),
+                $user->getInstitution()->getLmsId(),
+                $user->getInstitution()->getLmsDomain(),
+                false
+            ));
 
-            $report = $course->getLatestReport();
-
-            if (!$report) {
-                throw new \Exception('msg.no_report_created');
-            }
-
-            $reportArr = $report->toArray();
-            $reportArr['files'] = $course->getFileItems();
-            $reportArr['issues'] = $course->getAllIssues();
-            $reportArr['contentItems'] = $course->getContentItems();
-            $reportArr['contentSections'] = $lmsFetch->getCourseSections($course, $user);
-
-            $response->setData($reportArr);
-
-            $prevReport = $course->getPreviousReport();
-            if ($prevReport && ($prevReport->getIssueCount() == $report->getIssueCount())) {
-                $response->addMessage('msg.no_new_content', 'success', 5000);
-            } else {
-                $response->addMessage('msg.new_content', 'success', 5000);
-            }
+            $response->addMessage('msg.scan_queued', 'success', 5000);
+            $response->setData(['status' => 'queued']);
         } catch (\Exception $e) {
-            if ('msg.course_scanning' === $e->getMessage()) {
-                $response->addMessage($e->getMessage(), 'info', 0, false);
-            } else {
-                $response->addMessage($e->getMessage(), 'error', 0);
-            }
+            $response->addMessage($e->getMessage(), 'error', 0);
         }
 
         return new JsonResponse($response);
     }
 
+    /**
+     * Initiates a full rescan of the specified course.
+     *
+     * This endpoint checks if the current user has access to the course, ensures the course is not currently being scanned,
+     * and verifies that the course is active. If all checks pass, it dispatches a message to queue a full rescan of the course.
+     * Returns a JSON response indicating the result of the operation.
+     *
+     * @Route("/api/sync/rescan/{course}", name="full_rescan")
+     *
+     * @param Course $course The course entity to be rescanned.
+     * @return JsonResponse The response containing the status of the rescan request.
+     *
+     * @throws \Exception If the user does not have permission, the course is being scanned, or the course is inactive.
+     */
     #[Route('/api/sync/rescan/{course}', name: 'full_rescan')]
     public function fullCourseRescan(Course $course): JsonResponse
     {
@@ -109,7 +109,8 @@ class SyncController extends ApiController
                 $user->getId(),
                 $user->getApiKey(),
                 $user->getInstitution()->getLmsId(),
-                $user->getInstitution()->getLmsDomain()
+                $user->getInstitution()->getLmsDomain(),
+                true
             ));
 
             $response->addMessage('msg.scan_queued', 'success', 5000);
@@ -121,6 +122,24 @@ class SyncController extends ApiController
         return new JsonResponse($response);
     }
 
+    /**
+     * Handles the synchronization and rescanning of a specific content item.
+     *
+     * This endpoint deletes old issues related to the given content item, rescans it for new issues,
+     * stores the new issues in the database, updates the report for the course, and returns the updated
+     * report data as a JSON response.
+     *
+     * Route: /api/sync/content/{contentItem}
+     * Method: GET
+     *
+     * @param ContentItem $contentItem The content item to be synchronized and rescanned.
+     * @param LmsFetchService $lmsFetch Service for LMS data fetching and issue management.
+     * @param ScannerService $scanner Service for scanning content items for issues.
+     *
+     * @return JsonResponse The updated report data including files, issues, content items, and sections.
+     *
+     * @throws \Exception If the report could not be created or updated.
+     */
     #[Route('/api/sync/content/{contentItem}', name: 'content_sync', methods: ['GET'])]
     public function requestContentSync(ContentItem $contentItem, LmsFetchService $lmsFetch, ScannerService $scanner)
     {

@@ -18,9 +18,9 @@ export default class Api {
             scanIssue: '/api/issues/{issue}/scan',
             adminReport: '/api/admin/courses/{course}/reports/latest',
             adminCourseReport: '/api/admin/courses/{course}/reports/full',
-            adminReportHistory: '/api/admin/reports/account/{account}/term/{term}', 
-            adminUser: '/api/admin/users',          
-            updateUser: '/api/users/{user}' 
+            adminReportHistory: '/api/admin/reports/account/{account}/term/{term}',
+            adminUser: '/api/admin/users',
+            updateUser: '/api/users/{user}'
         }
         this.settings = settings;
 
@@ -89,7 +89,7 @@ export default class Api {
             headers: {
                 'X-AUTH-TOKEN': authToken,
             },
-            body: JSON.stringify({sourceHtml: issue.sourceHtml, newHtml: issue.newHtml, fullPageHtml: fullPageHtml, xpath: issue.xpath}),
+            body: JSON.stringify({ sourceHtml: issue.sourceHtml, newHtml: issue.newHtml, fullPageHtml: fullPageHtml, xpath: issue.xpath }),
         })
     }
 
@@ -106,7 +106,7 @@ export default class Api {
                 'Content-Type': 'application/json',
                 'X-AUTH-TOKEN': authToken,
             },
-            body: JSON.stringify({status: issue.status, sourceHtml: issue.sourceHtml, newHtml: issue.newHtml, fullPageHtml: fullPageHtml}),
+            body: JSON.stringify({ status: issue.status, sourceHtml: issue.sourceHtml, newHtml: issue.newHtml, fullPageHtml: fullPageHtml }),
         })
     }
 
@@ -160,11 +160,11 @@ export default class Api {
         let url = `${this.apiUrl}${this.endpoints.adminCourses}`
         url = url.replace('{account}', filters.accountId)
             .replace('{term}', filters.termId)
-        
+
         if (filters.includeSubaccounts) {
             url += '?subaccounts=true'
         }
-        
+
         return fetch(url, {
             method: 'GET',
             headers: {
@@ -180,7 +180,7 @@ export default class Api {
         let url = `${this.apiUrl}${this.endpoints.adminReportHistory}`
         url = url.replace('{account}', filters.accountId)
             .replace('{term}', filters.termId)
-        
+
         if (filters.includeSubaccounts) {
             url += '?subaccounts=true'
         }
@@ -235,8 +235,7 @@ export default class Api {
         })
     }
 
-    scanCourse(courseId)
-    {
+    scanCourse(courseId) {
         const authToken = this.getAuthToken()
         let url = `${this.apiUrl}${this.endpoints.scanCourse}`
         url = url.replace('{course}', courseId)
@@ -250,8 +249,7 @@ export default class Api {
         })
     }
 
-    fullRescan(courseId)
-    {
+    fullRescan(courseId) {
         const authToken = this.getAuthToken()
         let url = `${this.apiUrl}${this.endpoints.fullRescan}`
         url = url.replace('{course}', courseId)
@@ -265,8 +263,7 @@ export default class Api {
         })
     }
 
-    scanContent(contentId)
-    {
+    scanContent(contentId) {
         const authToken = this.getAuthToken()
         let url = `${this.apiUrl}${this.endpoints.scanContent}`
         url = url.replace('{contentItem}', contentId)
@@ -280,8 +277,7 @@ export default class Api {
         })
     }
 
-    scanIssue(issueId)
-    {
+    scanIssue(issueId) {
         const authToken = this.getAuthToken()
         let url = `${this.apiUrl}${this.endpoints.scanIssue}`
         url = url.replace('{issue}', issueId)
@@ -296,17 +292,17 @@ export default class Api {
     }
 
     getIssueContent(issueId) {
-      const authToken = this.getAuthToken()
-      let url = `${this.apiUrl}${this.endpoints.getIssueContent}`
-      url = url.replace('{issue}', issueId)
+        const authToken = this.getAuthToken()
+        let url = `${this.apiUrl}${this.endpoints.getIssueContent}`
+        url = url.replace('{issue}', issueId)
 
-      return fetch(url, {
-          method: 'GET',
-          headers: {
-              'Content-Type': 'application/json',
-              'X-AUTH-TOKEN': authToken,
-          },
-      })
+        return fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-AUTH-TOKEN': authToken,
+            },
+        })
     }
 
     updateUser(user) {

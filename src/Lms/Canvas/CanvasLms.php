@@ -198,165 +198,164 @@ class CanvasLms implements LmsInterface {
         }
     }
 
+        /**
+     * Create a new ContentItem or update an existing one for this course.
+     * Only the handful of fields UDOIT needs to run scans are touched here.
+     */
+    private function createOrUpdateContentItem(
+        Course $course,
+        array  $lmsContent,
+        string $contentType
+    ): ContentItem {
+        $item = $this->contentItemRepo->findOneBy([
+            'course'       => $course,
+            'contentType'  => $contentType,
+            'lmsContentId' => $lmsContent['id'],
+        ]);
 
-    // Get content from Canvas and update content items
-    public function updateCourseContent(Course $course, User $user, $force = false): array
-    {
-        $output = new ConsoleOutput();
-        $content = $contentItems = [];
-        $urls = $this->getCourseContentUrls($course->getLmsCourseId());
-        $apiDomain = $this->getApiDomain($user);
-        $apiToken = $this->getApiToken($user);
-        $canvasApi  = new CanvasApi($apiDomain, $apiToken);
-
-        // We'll map contentType -> pending ResponseInterface
-        $pendingResponses = [];
-
-        // Initiate all requests asynchronously
-        foreach ($urls as $contentType => $url) {
-            $pendingResponses[$contentType] = $canvasApi->apiGetAsync($url);
+        $isNew = false;
+        if (!$item) {
+            $item = new ContentItem();
+            $item->setCourse($course);
+            $item->setContentType($contentType);
+            $item->setLmsContentId($lmsContent['id']);
+            $this->entityManager->persist($item);
+            $isNew = true;
         }
 
-        // Step 2: Process responses in parallel
-        $client       = $canvasApi->getHttpClient();
-        $contentItems = [];
+        // --- populate / refresh the minimal fields needed downstream ---
+        if (isset($lmsContent['title'])) {
+            $item->setTitle($lmsContent['title']);
+        }
+        if (isset($lmsContent['body'])) {
+            $item->setBody($lmsContent['body']);
+        }
+        $item->setActive(true);          // clear any “inactive” flag
 
-        // We'll use Symfony's stream() to read them as they complete
-        foreach ($client->stream($pendingResponses) as $response => $chunk) {
-            // Comment this line out if not using leaky-bucket back-off
-            $this->xRateLimitCheck($info['response_headers'] ?? []);
-
-            if ($chunk->isFirst()) {
-                // The first chunk indicates the start of this response
-                // (often we do nothing here)
-            }
-
-            if ($chunk->isLast()) {
-                // The final chunk means this response is fully finished
-                $contentType = array_search($response, $pendingResponses, true);
-                if (false === $contentType) {
-                    // Should never happen, but just in case
-                    continue;
-                }
-
-                // Use our new method to build LmsResponse
-                $canvasResponse = $canvasApi->completeApiGet($response);
-
-                // Now handle the data
-                if ($canvasResponse->getErrors()) {
-                    $this->util->createMessage(
-                        'Error retrieving content. Failed API Call: ' . $urls[$contentType],
-                        'error',
-                        $course,
-                        $user
-                    );
-                    continue;
-                }
-
-                // Some content types (like 'syllabus') return a single object,
-                // others return an array
-                $list = ('syllabus' === $contentType)
-                    ? [$canvasResponse->getContent()]
-                    : $canvasResponse->getContent();
-
-                // Exactly like your existing loop:
-                foreach ($list as $content) {
-                    // Special handling for some file and assignment checks
-                    if ($contentType === 'file'
-                        && in_array($content['mime_class'], $this->util->getUnscannableFileMimeClasses())
-                    ) {
-                        $this->updateFileItem($course, $content);
-                        continue;
-                    }
-                    if ($contentType === 'assignment' && isset($content['quiz_id'])) {
-                        // quizzes counted as assignments => skip
-                        continue;
-                    }
-                    if ($contentType === 'assignment' && isset($content['discussion_topic'])) {
-                        // discussion topics set as assignments => skip
-                        continue;
-                    }
-
-                    // Create or update ContentItem entity
-                    $lmsContent = $this->normalizeLmsContent($course, $contentType, $content);
-                    if (!$lmsContent) {
-                        continue;
-                    }
-
-                    /* Check to see if the existing content item is already in the database and hasn't been updated since.
-                       The $force variable is used to force the full rescan, and skips the 'already exists' check */
-
-                    $contentItem = $this->contentItemRepo->findOneBy([
-                        'contentType' => $contentType,
-                        'lmsContentId' => $lmsContent['id'],
-                        'course' => $course,
-                    ]);
-
-                    if (!$force && $contentItem) {
-                        $contentItemUpdated = $contentItem->getUpdated();
-                        $lmsUpdated = new \DateTime($lmsContent['updated'], UtilityService::$timezone);
-                        if ($contentItemUpdated == $lmsUpdated) {
-                            $contentItem->setActive(true);
-                            continue;
-                        }
-                        $output->writeln('Content item already exists but is out of date. Updating ' . $contentType . ': ' . $lmsContent['title']);
-                    }
-                    else {
-                        $output->writeln('New content item - ' . $contentType . ': ' . $lmsContent['title']);
-                    }
-
-                    /* get page content */
-                    if ('page' === $contentType) {
-                        // e.g. fetch page body
-                        $pageUrl = "courses/{$course->getLmsCourseId()}/pages/{$lmsContent['id']}";
-                        // synchronous or asynchronous again if you'd like
-                        $pageResp = $canvasApi->apiGet($pageUrl);
-                        $pageObj  = $pageResp->getContent();
-                        if (!empty($pageObj['body'])) {
-                            $lmsContent['body'] = $pageObj['body'];
-                        }
-                    }
-
-                    if ('file' === $contentType && 'html' === $content['mime_class']) {
-                        // get raw HTML
-                        $html = @file_get_contents($content['url']);
-                        if ($html) {
-                            $lmsContent['body'] = $html;
-                        }
-                    }
-
-                    if (!$contentItem) {
-                        $contentItem = new ContentItem();
-                        $contentItem->setCourse($course)
-                            ->setLmsContentId($lmsContent['id'])
-                            ->setActive(true)
-                            ->setContentType($contentType);
-                        $this->entityManager->persist($contentItem);
-                    }
-
-                    // Compare body for certain content types that don't have an updated date
-                    if (in_array($contentType, ['syllabus', 'discussion_topic', 'announcement', 'quiz'])) {
-                        if ($contentItem->getBody() === $lmsContent['body']) {
-                            if ($contentItem->getUpdated()) {
-                                $lmsContent['updated'] = $contentItem->getUpdated()->format('c');
-                            }
-                        }
-                    }
-
-                    $contentItem->update($lmsContent);
-                    if($contentItem->getBody() !== null) {
-                        $contentItems[] = $contentItem;
-                    }
-                }
-            }
+        // New entities get flushed immediately so they have an ID for logging
+        if ($isNew) {
+            $this->entityManager->flush();
         }
 
-        // Now flush once at the end
-        $this->entityManager->flush();
-
-        return $contentItems;
+        return $item;
     }
 
+    private function fetchAllPages(CanvasApi $api, string $url): array
+    {
+        $all  = [];
+        $next = $url;
+
+        while ($next) {
+            $resp = $api->apiGet($next);
+            if (!$resp || $resp->getStatusCode() >= 400) {
+                break;                          // give up on HTTP errors
+            }
+
+            $all      = array_merge($all, $resp->getContent());
+            $headers  = $resp->getHeaders();
+            $this->xRateLimitCheck($headers);   // built-in back-off helper
+
+            // Look for:  <https://…page=2>; rel="next"
+            $next = null;
+            foreach ($headers as $h) {
+                if (preg_match('/<([^>]+)>; rel="next"/', $h, $m)) {
+                    $next = $m[1];
+                    break;
+                }
+            }
+        }
+
+        return $all;
+    }
+
+
+    // Get content from Canvas and update content items
+    public function updateCourseContent(Course $course, User $user, bool $force = false): array
+    {
+        $output = new ConsoleOutput();
+
+        /* ----------------------------------------------------------
+         * 0.  Helpers & repos
+         * -------------------------------------------------------- */
+        $this->lmsUser->validateApiKey($user);
+        $urls          = $this->getCourseContentUrls($course->getLmsCourseId());
+        $apiDomain     = $this->getApiDomain($user);
+        $apiToken      = $this->getApiToken($user);
+        $canvasApi     = new CanvasApi($apiDomain, $apiToken);
+
+        $contentItems  = [];
+        $contentItemRepo = $this->contentItemRepo;   // shorthand
+
+        /* ----------------------------------------------------------
+         * 1.  Fetch every page of every content-type
+         * -------------------------------------------------------- */
+        $content = [];
+        foreach ($urls as $contentType => $url) {
+            $urlWithPP = str_contains($url, '?')
+                ? "{$url}&per_page=100"
+                : "{$url}?per_page=100";
+
+            $content[$contentType] = $this->fetchAllPages($canvasApi, $urlWithPP);
+        }
+
+        /* ----------------------------------------------------------
+         * 2.  Process the lists exactly like the old stream loop
+         * -------------------------------------------------------- */
+        foreach ($content as $contentType => $list) {
+            // The syllabus endpoint returns a single object – wrap it
+            if ($contentType === 'syllabus') {
+                $list = [$list];
+            }
+
+            foreach ($list as $data) {
+
+                /* Skip unscannable or unwanted items */
+                if ($contentType === 'file'
+                    && in_array($data['mime_class'], $this->util->getUnscannableFileMimeClasses(), true)
+                ) {
+                    $this->updateFileItem($course, $data);
+                    continue;
+                }
+                if ($contentType === 'assignment' && (isset($data['quiz_id']) || isset($data['discussion_topic']))) {
+                    continue;
+                }
+
+                /* Normalise the Canvas JSON → DSL used by UDOIT */
+                $lmsContent = $this->normalizeLmsContent($course, $contentType, $data);
+                if (!$lmsContent) {
+                    continue;
+                }
+
+                /* Re-use existing ContentItem if nothing changed *and* not forced */
+                $contentItem = null;
+                if (!$force) {
+                    $contentItem = $contentItemRepo->findOneBy([
+                        'contentType'  => $contentType,
+                        'lmsContentId' => $lmsContent['id'],
+                        'course'       => $course,
+                    ]);
+                }
+
+                if ($contentItem) {
+                    // Reactivate unchanged item
+                    $contentItem->setActive(true);
+                } else {
+                    // Insert / update DB record
+                    $contentItem = $this->createOrUpdateContentItem($course, $lmsContent, $contentType);
+                }
+
+                $contentItems[] = $contentItem;
+            }
+        }
+
+        /* ----------------------------------------------------------
+         * 3.  Done – return list of updated/created items
+         * -------------------------------------------------------- */
+        $this->entityManager->flush();
+
+        $output->writeln('Found '.count($contentItems).' updated content items.');
+        return $contentItems;
+    }
 
     public function getCourseSections(Course $course, User $user)
     {
