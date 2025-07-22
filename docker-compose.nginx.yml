@@ -84,6 +84,39 @@ services:
         - PORT=3000
         - ASYNC_POOL_SIZE=${ASYNC_POOL_SIZE}
 
+  captions-db:
+    container_name: captions-db
+    image: mysql:latest
+    environment:
+      MYSQL_DATABASE: captions
+      MYSQL_USER: captions
+      MYSQL_PASSWORD: captions_pass
+    volumes:
+      - captions_db_data:/var/lib/mysql/data
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -u captions -pcaptions_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  captions-app:
+    container_name: captions-app
+    build:
+      context: ./captions
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./captions/.env
+    depends_on:
+      captions-db:
+        condition: service_healthy
+    volumes:
+      - ./captions:/app
+
 volumes:
   web:
   dbdata:
+  captions_db_data:

@@ -1,0 +1,26 @@
+Flask>=2.2                     # the web framework
+gunicorn>=20.1                 # production WSGI server
+
+# Database & ORM
+SQLAlchemy>=1.4                # ORM
+mysqlclient>=2.1               # MySQL driver for SQLAlchemy
+
+# Email
+Flask-Mail>=0.9                # simple SMTP integration
+
+# HTTP & env management
+requests>=2.28                 # downloading video via HTTP
+python-dotenv>=0.21            # load .env vars into Flask
+
+# OpenAI Whisper
+openai>=0.27                   # Whisper API client
+
+# AWS S3 uploads
+boto3>=1.26                    # AWS SDK for Python
+
+# VTT handling (stitching, parsing)
+webvtt-py>=1.1                 # read/write WebVTT files
+
+# (Optional) if you introduce background tasks
+celery>=5.3                    # task queue
+redis>=4.3                     # Redis client for Celery broker/backend
