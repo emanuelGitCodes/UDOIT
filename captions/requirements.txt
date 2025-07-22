@@ -19,7 +19,7 @@ openai>=0.27                   # Whisper API client
 boto3>=1.26                    # AWS SDK for Python
 
 # VTT handling (stitching, parsing)
-webvtt-py>=1.1                 # read/write WebVTT files
+webvtt-py>=0.5                 # read/write WebVTT files
 
 # (Optional) if you introduce background tasks
 celery>=5.3                    # task queue
