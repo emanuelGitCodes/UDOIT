@@ -13,7 +13,8 @@ const FIVE_MINUTES = 300;
 
 class SessionService {
     protected UserSessionRepository $sessionRepo;
-    protected Request $request;
+    /** @var Request|null */
+    protected ?Request $request = null;
     protected UserSession $userSession;
     protected ManagerRegistry $doctrine;
 
@@ -30,27 +31,32 @@ class SessionService {
 
     public function getSession(?string $uuid = null): UserSession
     {
+        // If there is no HTTP request (e.g. in a CLI worker), skip to creating a new session
+        if ($this->request === null && empty($this->userSession)) {
+            return $this->createSession();
+        }
+
         if (empty($uuid) && !empty($this->userSession)) {
             return $this->userSession;
         }
 
         // Check request header
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->headers->get('X-AUTH-TOKEN');
         }
 
         // Check request GET params
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->query->get('auth_token');
         }
 
         // Check PHP session for a UUID
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->cookies->get('AUTH_TOKEN');
         }
 
         // Check state for UUID from Oauth
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->query->get('state');
         }
 
@@ -72,17 +78,17 @@ class SessionService {
         }
 
         // Check request header
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->headers->get('X-AUTH-TOKEN');
         }
 
         // Check request GET params
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->query->get('auth_token');
         }
 
         // Check PHP session for a UUID
-        if (!$uuid) {
+        if (!$uuid && $this->request) {
             $uuid = $this->request->cookies->get('AUTH_TOKEN');
         }
 

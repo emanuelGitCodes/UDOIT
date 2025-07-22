@@ -14,6 +14,13 @@ use App\Services\ScannerService;
 use App\Services\UtilityService;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+use App\Message\FullRescanMessage;
+use Symfony\Component\Messenger\MessageBusInterface;
+use App\Services\BatchStatusService;
+use Symfony\Component\Uid\Uuid;
 
 class SyncController extends ApiController
 {
@@ -87,10 +94,12 @@ class SyncController extends ApiController
     }
 
     #[Route('/api/sync/rescan/{course}', name: 'full_rescan')]
-    public function fullCourseRescan(Course $course, LmsFetchService $lmsFetch) {
+    public function fullCourseRescan(Course $course, BatchStatusService $batchStatus, MessageBusInterface $bus): JsonResponse
+    {
         $response = new ApiResponse();
+        $output = new ConsoleOutput();
+        $output->writeln(print_r($response, true));
         $user = $this->getUser();
-        $reportArr = false;
 
         try {
             if (!$this->userHasCourseAccess($course)) {
@@ -100,41 +109,74 @@ class SyncController extends ApiController
                 throw new \Exception('msg.course_scanning');
             }
             if (!$course->isActive()) {
+
                 $response->setData(0);
                 throw new \Exception('msg.sync.course_inactive');
             }
 
-            $lmsFetch->refreshLmsContent($course, $user, true);
+            // ✅ Use $this->bus
+            $batchId = Uuid::v4()->toRfc4122();
+            $bus->dispatch(new FullRescanMessage(
+                $course->getId(),
+                $user->getId(),
+                $user->getApiKey(),
+                $user->getInstitution()->getLmsId(),
+                $user->getInstitution()->getLmsDomain(),
+                $batchId,
+                true // force rescan
+            ));
 
-            $report = $course->getLatestReport();
+            // 🔑  initial status
+            $batchStatus->setStatus($batchId, 'queued');
 
-            if (!$report) {
-                throw new \Exception('msg.no_report_created');
-            }
-
-            $reportArr = $report->toArray();
-            $reportArr['files'] = $course->getFileItems();
-            $reportArr['issues'] = $course->getAllIssues();
-            $reportArr['contentItems'] = $course->getContentItems();
-            $reportArr['contentSections'] = $lmsFetch->getCourseSections($course, $user);
-
-            $response->setData($reportArr);
-
-            $reportData = json_decode($report->getData());
-            if(isset($reportData->itemsScanned) && $reportData->itemsScanned > 0) {
-                $response->addMessage('msg.new_content', 'success', 5000);
-            } else {
-                $response->addMessage('msg.no_new_content', 'success', 5000);
-            }
+            $response->addMessage('msg.scan_queued', 'success', 5000);
+            $response->setData([
+                'status'  => 'queued',
+                'batchId' => $batchId             // <‑‑ send to UI
+            ]);
 
         } catch (\Exception $e) {
-            if ('msg.course_scanning' === $e->getMessage()) {
-                $response->addMessage($e->getMessage(), 'info', 0, false);
-            } else {
-                $response->addMessage($e->getMessage(), 'error', 0);
-            }
+            $response->addMessage($e->getMessage(), 'error', 0);
         }
 
+        return new JsonResponse($response);
+    }
+
+        #[Route('/api/sync/report/{course}', name: 'report_sync', methods: ['GET'])]
+    public function getReport(Course $course, LmsFetchService $lmsFetch): JsonResponse
+    {
+        $response = new ApiResponse();
+        $user = $this->getUser();
+        $report = $course->getLatestReport();
+
+        if (!$report) {
+            throw new \Exception('msg.no_report_created');
+        }
+
+        $reportArr = $report->toArray();
+        $reportArr['files'] = $course->getFileItems();
+        $reportArr['issues'] = $course->getAllIssues();
+        $reportArr['contentItems'] = $course->getContentItems();
+        $reportArr['contentSections'] = $lmsFetch->getCourseSections($course, $user);
+
+        $response->setData($reportArr);
+
+        return new JsonResponse($response);
+
+    }
+
+    #[Route('/api/rescan/status/{batchId}', name: 'rescan_status', methods: ['GET'])]
+    public function rescanStatus(string $batchId, BatchStatusService $batchStatus): JsonResponse
+    {
+        $response = new ApiResponse();
+        $status = $batchStatus->getStatus($batchId);
+
+        if (!$status) {
+            $response->addMessage('msg.invalid_batch', 'error', 0);
+            return new JsonResponse($response, 404);
+        }
+
+        $response->setData(['status' => $status]);
         return new JsonResponse($response);
     }
 
