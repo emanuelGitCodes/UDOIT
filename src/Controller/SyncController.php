@@ -97,8 +97,6 @@ class SyncController extends ApiController
     public function fullCourseRescan(Course $course, BatchStatusService $batchStatus, MessageBusInterface $bus): JsonResponse
     {
         $response = new ApiResponse();
-        $output = new ConsoleOutput();
-        $output->writeln(print_r($response, true));
         $user = $this->getUser();
 
         try {
