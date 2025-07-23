@@ -3,6 +3,7 @@ gunicorn>=20.1                 # production WSGI server
 
 # Database & ORM
 SQLAlchemy>=1.4                # ORM
+Flask-SQLAlchemy>=3.0          # Flask integration with SQLAlchemy
 mysqlclient>=2.1               # MySQL driver for SQLAlchemy
 
 # Email
