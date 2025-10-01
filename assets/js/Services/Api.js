@@ -99,7 +99,6 @@ export default class Api {
 
         let url = `${this.apiUrl}${this.endpoints.setReportData}`
         url = url.replace('{report}', reportId)
-        console.log(url)
 
         return fetch(url, {
             method: 'POST',

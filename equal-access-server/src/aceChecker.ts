@@ -96,7 +96,7 @@ export async function closePagePool(): Promise<void> {
 //     - manual
 //     - pass
 
-const SCAN_TIMEOUT_MS = parseInt(process.env.SCAN_TIMEOUT_MS ?? '10000', 10); // 10 s
+const SCAN_TIMEOUT_MS = parseInt(process.env.SCAN_TIMEOUT_MS ?? '1000', 1); // 10 s
 export async function aceCheck(html: string, browser: puppeteer.Browser, guidelineIds?: string | string[], reportLevels?: string | string[]): Promise<Report> {
 
   if (!pagePool) {

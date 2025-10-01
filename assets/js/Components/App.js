@@ -136,15 +136,8 @@ export default function App(initialData) {
 
     let api = new Api(settings)
     api.setReportData(tempReport.id, { 'scanCounts': tempReport.scanCounts })
-      .then((response) => {
-        console.log('Are we getting in the setReportData response')
-        console.log(response)
-
-        return response.json()
-      })
+      .then((response) => response.json())
       .then((data) => {
-        console.log('Are we getting in the setReportData data')
-        console.log(data)
         if (data.errors && data.errors.length > 0) {
           data.errors.forEach((error) => {
             addMessage({ message: error, severity: 'error', visible: true })
@@ -305,7 +298,6 @@ export default function App(initialData) {
                   .then(res => res.json())
                   .then(fullData => {
                     handleNewReport(fullData, true);
-                    console.log('Latest report fetched after rescan:', fullData);
                     const elapsed = performance.now() - t0;
                     console.log(`handleFullCourseRescan finished in ${elapsed.toFixed(0)} ms`);
                   })
