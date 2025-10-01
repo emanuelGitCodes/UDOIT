@@ -49,8 +49,7 @@ app.post(
       res.status(200).json(report);
 
     } catch (err: any) {
-      console.error("❌  /scan route error:", err);
-      res.status(500).json({ error: err.message ?? "Unknown error" });
+
     }
   })
 );
